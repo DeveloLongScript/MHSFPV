@@ -1,0 +1,7 @@
+name: MHSFPV
+version: '0.5'
+main: me.devlongscript.mhsfpv.MHSFPV
+api-version: '1.19'
+authors: [dvelo]
+description: Hiiii! my name is Plugin! whats yours?
+website: https://list.mlnehut.com
