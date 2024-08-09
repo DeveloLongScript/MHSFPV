@@ -11,7 +11,7 @@
 .mtj.tmp/
 
 # Compiled .jar file
-target/
+target
 
 # Package Files #
 *.jar
