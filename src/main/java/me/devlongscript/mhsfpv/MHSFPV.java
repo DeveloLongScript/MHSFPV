@@ -2,46 +2,45 @@ package me.devlongscript.mhsfpv;
 
 import com.mongodb.client.*;
 import com.mongodb.client.model.changestream.ChangeStreamDocument;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.title.Title;
-import net.kyori.adventure.title.TitlePart;
-import org.bson.BsonDocument;
+import com.sun.org.apache.bcel.internal.generic.NEW;
+import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bson.Document;
-import org.bson.conversions.Bson;
-import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.command.Command;
+import org.bukkit.command.CommandExecutor;
+import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
-import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerLoginEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitTask;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.UnknownNullability;
 
-import java.util.List;
+import java.util.HashMap;
+import java.util.Objects;
 import java.util.Random;
-import java.util.concurrent.TimeUnit;
-import java.util.logging.Level;
 
 import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Filters.text;
 
-public final class MHSFPV extends JavaPlugin implements Listener {
+public final class MHSFPV extends JavaPlugin implements Listener, CommandExecutor {
     FileConfiguration config = getConfig();
+    public static String textPrefix = "<gradient:#BF00FF:#007BFF>ᴍʜꜱꜰ <#007BFF>| ";
+    public HashMap<Player, Boolean> linkedUsers = new HashMap<>();
 
     @Override
     public void onEnable() {
         // Plugin startup logic
         config.addDefault("mongodb", "");
+        config.addDefault("linkMethod", "command");
+        config.addDefault("serverName", "MHSFPV");
         config.options().copyDefaults(true);
         saveConfig();
         MHSFPV.instance = this;
 
         getServer().getPluginManager().registerEvents(this, this);
+        Objects.requireNonNull(getCommand("mhsf")).setExecutor(this);
     }
 
     @Override
@@ -61,9 +60,58 @@ public final class MHSFPV extends JavaPlugin implements Listener {
         } catch (Exception ignored) {}
 
     }
+    
+    @Override
+    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        MiniMessage miniMessage = MiniMessage.miniMessage();
+        
+        if (sender instanceof Player) {
+            Player player = (Player) sender;
+
+            if (Objects.equals(config.getString("linkMethod"), "command")) {
+                linkedUsers.put(player, false);
+                player.sendMessage(miniMessage.deserialize(textPrefix + "Grabbing code from MHSF..."));
+                if (mongoClient == null) {
+                    try {
+                        mongoClient = MongoClients.create(config.getString("mongodb"));
+                    } catch(Exception e) {
+                        config = getConfig();
+                        player.sendMessage(miniMessage.deserialize(textPrefix + "<red>Database hasn't been configured correctly or at all. Please go to a server administrator."));
+                        return true;
+                    }
+                }
+                MongoDatabase database = mongoClient.getDatabase("mhsf");
+                MongoCollection collection = database.getCollection("auth_codes");
+
+                MongoCollection users = database.getCollection("claimed-users");
+                if (users.find(eq("player", player.getName())).first() != null) {
+                    player.sendMessage(miniMessage.deserialize(textPrefix + "<red>Your account is already linked! Go to your account settings to unlink it."));
+                    return true;
+                }
+                String code = generateValidCode(collection);
+                collection.insertOne(new Document().append("code", code).append("player", player.getName()));
+                player.sendMessage(miniMessage.deserialize(textPrefix + "Connect your account by typing the code <bold>" + code + "</bold> into mhsf.app"));
+                player.sendMessage(miniMessage.deserialize(textPrefix + "This code expires in 60 seconds."));
+
+                MongoCollection<Document> watchdb = database.getCollection("claimed-users");
+                MongoChangeStreamCursor<ChangeStreamDocument<Document>> cursor = (MongoChangeStreamCursor<ChangeStreamDocument<Document>>) watchdb.watch().iterator();
+                new CommandSuccessTask(cursor, player).runTaskAsynchronously(this);
+                new CommandMessageTask(player).runTaskLater(this, 60 * 20);
+            } else {
+                player.sendMessage(miniMessage.deserialize("<red>You cannot link via commands on this server."));
+            }
+        } else {
+            sender.sendMessage("You can't link from the console, silly!");
+        }
+        
+        return true;
+    }
 
     @EventHandler
     public void onPlayerLogin(PlayerLoginEvent event) {
+        if (config.getString("linkMethod") != "login") {
+            return;
+        }
         Player player = event.getPlayer();
         player.sendMessage(ChatColor.translateAlternateColorCodes('&', "&2"));
         player.sendMessage(ChatColor.translateAlternateColorCodes('&', "&2&lLink Account"));
@@ -88,7 +136,7 @@ public final class MHSFPV extends JavaPlugin implements Listener {
                 collection.insertOne(new Document().append("code", code).append("player", player.getName()));
 
 
-                player.sendMessage(ChatColor.translateAlternateColorCodes('&', "&2Connect your account by typing the code &n" + code + "&2 into list.mlnehut.com"));
+                player.sendMessage(ChatColor.translateAlternateColorCodes('&', "&2Connect your account by typing the code &n" + code + "&2 into mhsf.app"));
                 player.sendMessage(ChatColor.translateAlternateColorCodes('&', "&2This code expires in 60 seconds."));
                 player.sendMessage(ChatColor.translateAlternateColorCodes('&', "&2"));
                 player.sendTitle(
@@ -97,7 +145,7 @@ public final class MHSFPV extends JavaPlugin implements Listener {
                 );
                 for (int i = 1; i <= 59; ++i) {
                     new MessageTask(player,
-                            ChatColor.translateAlternateColorCodes('&', "&2\n&2\n&2\n&2\n&2\n&2\n&2\n&2\n&2&lLink Account\n&2Connect your account by typing the code &n" + code + "&2 into list.mlnehut.com\n&2This code expires in " + (60 - i) + " seconds.\n&2"),
+                            ChatColor.translateAlternateColorCodes('&', "&2\n&2\n&2\n&2\n&2\n&2\n&2\n&2\n&2&lLink Account\n&2Connect your account by typing the code &n" + code + "&2 into mhsf.app\n&2This code expires in " + (60 - i) + " seconds.\n&2"),
                             ChatColor.translateAlternateColorCodes('&', "&2&lType the code &n" + code),
                             ChatColor.translateAlternateColorCodes('&', "&2This code expires in " + (60 - i) + " seconds.")
                     ).runTaskLater(this, 20 * i);

@@ -4,4 +4,9 @@ main: me.devlongscript.mhsfpv.MHSFPV
 api-version: '1.19'
 authors: [dvelo]
 description: Hiiii! my name is Plugin! whats yours?
-website: https://list.mlnehut.com
+website: https://mhsf.app
+
+commands: 
+  mhsf:
+      usage: /<command>
+      description: Link your account w/ MHSF
